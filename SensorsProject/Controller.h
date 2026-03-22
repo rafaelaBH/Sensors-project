@@ -16,6 +16,8 @@ class Controller {
   private:
     int numTempSensors;
     int numHumSensors;
+    thread mainThread;
+    atomic<bool> mainFlag;
     vector<unique_ptr<Sensor>> sensors;
     vector<thread> threads;
     vector<atomic<bool>> flags; // using atomic so that the values are immediately updated in all threads
@@ -28,6 +30,8 @@ class Controller {
     Data d;
 
     double avgCalc(vector<double>& v, int size);
+    void replaceSensor(int indexD, int index, double newVal);
+    void runMainThread();
 
   public:
     Controller(int numTemp, int numHum);
@@ -35,8 +39,8 @@ class Controller {
     Controller& operator=(const Controller& c) = delete;
     ~Controller();
     void runSensorThreads(); // start threads for all sensors
-    void runMainThread(); // start main thread
     void stopThreads();
+    void startMainThread();
 };
 
 
