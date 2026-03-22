@@ -1,0 +1,3 @@
+C:/clionProject/SensorsProject/cmake-build-debug/CMakeFiles/SensorsProject.dir
+C:/clionProject/SensorsProject/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/clionProject/SensorsProject/cmake-build-debug/CMakeFiles/rebuild_cache.dir
