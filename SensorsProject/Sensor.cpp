@@ -1,7 +1,10 @@
 
 #include "Sensor.h"
+
+#include <stdexcept>
+
 #include "random"
-#include "stdio.h"
+#include <cstdio>
 using namespace std;
 
 // Adds noise to value using normal distribution to simulate a small noise
@@ -20,9 +23,23 @@ double Sensor::kalmanFilter() {
     return estimatedValue;
 }
 
-// This keeps the Kalman logic encapsulated and private
+// This keeps the Kalman logic encapsulated and private + simulates flaws in sensors
 void Sensor::readValue() {
+    double r = rand() / static_cast<double>(RAND_MAX);
+    if (r < 0.05) setValue(rand() % 51 + 70);
+    else if (r < 0.1) setValue(rand() % 21 - 50);
+    else if (r < 0.2) throw runtime_error("flawed sensor - not working");
     setValue(kalmanFilter());
 }
+
+void TemperatureSensor::writeToData(SensorsData &d, double val, int i) {
+    d.tempValues[i] = val;
+}
+
+void HumiditySensor::writeToData(SensorsData &d, double val, int i) {
+    d.humValues[i] = val;
+}
+
+
 
 

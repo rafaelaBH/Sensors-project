@@ -2,12 +2,12 @@
 #ifndef CONTROLLER_H
 #define CONTROLLER_H
 #include <condition_variable>
-#include <iostream>
 #include <memory>
 #include <thread>
 #include <atomic>
 #include <vector>
 #include "Sensor.h"
+#include "SensorsData.h"
 
 using namespace std;
 
@@ -15,19 +15,16 @@ class Controller {
 
   private:
     int numTempSensors;
-    atomic<bool> mainFlag;
+    atomic<bool> mainFlag; // atomic so that the values are immediately updated in all threads
     int numHumSensors;
     thread mainThread;
     vector<unique_ptr<Sensor>> sensors;
     vector<thread> threads;
-    vector<unique_ptr<atomic<bool>>> flags; // using atomic so that the values are immediately updated in all threads
-    condition_variable isUpdate;
+    vector<unique_ptr<atomic<bool>>> flags; // atomic so that the values are immediately updated in all threads
     mutex m;
-    struct Data {
-      std::vector<double> tempValues;
-      std::vector<double> humValues;
-    };
-    Data d;
+    SensorsData d;
+    vector<unique_ptr<atomic<bool>>> needReplacement; // atomic so that the values are immediately updated in all threads
+    friend class ControllerTest; //for testing
 
     double avgCalc(vector<double>& v, int size);
     void runMainThread();

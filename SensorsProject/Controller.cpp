@@ -1,6 +1,8 @@
 
 #include "Controller.h"
 
+#include <iostream>
+
 # define MAX_TEMP_ALLOWED 30.0
 # define MIN_TEMP_ALLOWED 10.0
 # define MAX_HUM_ALLOWED 60.0
@@ -18,9 +20,13 @@ d{vector<double>(numTemp, 0), vector<double>(numHum, 0)} {
     }
     // making all vectors the same size
     threads.resize(sensors.size());
+    needReplacement.resize(sensors.size());
     flags.resize(sensors.size());
     for (auto& f : flags) {
         f = make_unique<atomic<bool>>(false);
+    }
+    for (auto& n : needReplacement) {
+        n = make_unique<atomic<bool>>(false);
     }
 }
 
@@ -33,7 +39,14 @@ void Controller::runSensorThreads() {
         flags[i]->store(true);
         auto lambda = [this, i]() {
             while (flags[i]->load()) {
-                sensors[i]->readValue();
+                try {
+                    sensors[i]->readValue();
+                }
+                catch (const runtime_error& e) {
+                    needReplacement[i]->store(true);
+                    this_thread::sleep_for(chrono::milliseconds(50));
+                    continue;
+                }
                 {
                     std::lock_guard<mutex> lock(m); // lock d so that multiple threads won't change it simultaneously
                     if (i < numTempSensors) d.tempValues[i] = sensors[i]->getValue();
@@ -47,6 +60,7 @@ void Controller::runSensorThreads() {
 }
 
 double Controller::avgCalc(vector<double>& v, int size) {
+    if (size == 0) return 0.0;
     double sum = 0;
     for (double d : v) {
         sum += d;
@@ -54,33 +68,20 @@ double Controller::avgCalc(vector<double>& v, int size) {
     return sum / size;
 }
 
-void Controller::replaceSensor(int indexD, int index, double avgTemp) {
-    // stops old thread and joins it
-    flags[index]->store(false);
-    if (threads[index].joinable()) threads[index].join();
-    // new sensor
-    sensors[index] = make_unique<TemperatureSensor>();
+void Controller::replaceSensor(int indexD, int index, double avg) {
+    if (!mainFlag.load()) return;
+    const SensorType t = sensors[index]->type;
+    // replace flawed sensor with a new one
     {
-        std::lock_guard<mutex> lock(m);
-        d.tempValues[indexD] = avgTemp;
+        lock_guard<mutex> lock(m);
+        if (t == SensorType::Temperature) sensors[index] = std::make_unique<TemperatureSensor>();
+        else sensors[index] = std::make_unique<HumiditySensor>();
+        sensors[index]->writeToData(d, avg, indexD);
     }
-    // starts new thread for new sensor
-    flags[index]->store(true);
-    auto lambda = [this, index, indexD]() {
-        while (flags[index]->load()) {
-            sensors[index]->readValue();
-            {
-                std::lock_guard<mutex> lock(m);
-                d.tempValues[indexD] = sensors[index]->getValue();
-            }
-            this_thread::sleep_for(chrono::seconds(1));
-        }
-    };
-    threads[index] = thread(lambda);
 }
 
 void Controller::runMainThread() {
-    while (mainFlag) {
+    while (mainFlag.load()) {
         vector<double> tempVector;
         vector<double> humVector;
         // separate block so that the lock automatically releases after the ending bracket
@@ -94,12 +95,26 @@ void Controller::runMainThread() {
         for (int i = 0; i < numTempSensors; ++i) {
             if (abs(tempVector[i] - avgTemp) > MAX_DIST_TEMP) {
                 cout << "Temperature sensor number " << i+1 << " is flawed!\n";
+                needReplacement[i]->store(true);
+            }
+        }
+        for (int i = 0; i < numTempSensors; ++i) {
+            if (needReplacement[i]->load()) {
+                cout << "Replacing temp sensor " << i+1 << " mid-run\n";
+                needReplacement[i]->store(false);
                 replaceSensor(i, i, avgTemp);
             }
         }
         for (int i = 0; i < numHumSensors; ++i) {
             if (abs(humVector[i] - avgHum) > MAX_DIST_HUM) {
                 cout << "Humidity sensor number " << i+1 << " is flawed!\n";
+                needReplacement[i+numTempSensors]->store(true);
+            }
+        }
+        for (int i = 0; i < numHumSensors; ++i) {
+            if (needReplacement[i+numTempSensors]->load()) {
+                cout << "Replacing hum sensor " << i+1 << " mid-run\n";
+                needReplacement[i+numTempSensors]->store(false);
                 replaceSensor(i, i+numTempSensors, avgHum);
             }
         }
@@ -129,7 +144,7 @@ void Controller::stopThreads() {
     for (int i = 0; i < static_cast<int>(flags.size()); ++i) {
         flags[i]->store(false);
     }
-    mainFlag = false;
+    mainFlag.store(false);
     // joins all threads
     for (thread& t : threads) {
         if (t.joinable()) t.join();
